@@ -24,10 +24,22 @@ func NewQueryParser() *QueryParser {
 }
 
 var (
-	fieldPattern = regexp.MustCompile(`(\w+):(\S+)`)
-	quotePattern = regexp.MustCompile(`"([^"]+)"`)
-	wildcardPattern = regexp.MustCompile(`[*?]`)
+	// fieldPattern matches explicit field:value syntax but excludes URLs (http:, https:, ftp:)
+	// and time-like patterns (10:30). Requires field name to be at least 2 chars and
+	// start at a word boundary.
+	fieldPattern      = regexp.MustCompile(`(?:^|\s)([a-zA-Z][a-zA-Z_]{1,}):(\S+)`)
+	quotePattern      = regexp.MustCompile(`"([^"]+)"`)
+	wildcardPattern   = regexp.MustCompile(`[*?]`)
 	multiSpacePattern = regexp.MustCompile(`\s+`)
+
+	// excludedFields are field-like prefixes that should not be treated as field:value queries
+	excludedFields = map[string]bool{
+		"http":  true,
+		"https": true,
+		"ftp":   true,
+		"ftps":  true,
+		"mailto": true,
+	}
 )
 
 func (qp *QueryParser) Parse(rawQuery string) *models.ParsedQuery {
@@ -41,12 +53,19 @@ func (qp *QueryParser) Parse(rawQuery string) *models.ParsedQuery {
 		return parsed
 	}
 
-	// Extract field:value pairs
+	// Extract field:value pairs, skipping URLs and time patterns
 	fieldMatches := fieldPattern.FindAllStringSubmatch(query, -1)
 	for _, m := range fieldMatches {
-		parsed.Fields[m[1]] = m[2]
+		field := strings.TrimSpace(m[1])
+		if excludedFields[strings.ToLower(field)] {
+			continue
+		}
+		parsed.Fields[field] = m[2]
 	}
-	query = fieldPattern.ReplaceAllString(query, "")
+	// Only strip matched field:value pairs that were accepted
+	for field, value := range parsed.Fields {
+		query = strings.Replace(query, field+":"+value, "", 1)
+	}
 
 	// Detect quoted phrases
 	quoteMatches := quotePattern.FindAllStringSubmatch(query, -1)

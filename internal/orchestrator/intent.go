@@ -22,8 +22,6 @@ func NewIntentClassifier() *IntentClassifier {
 			"sum":       true,
 			"stats":     true,
 			"trending":  true,
-			"popular":   true,
-			"top":       true,
 			"report":    true,
 			"analytics": true,
 			"aggregate": true,
@@ -31,15 +29,9 @@ func NewIntentClassifier() *IntentClassifier {
 			"breakdown": true,
 		},
 		facetedKeywords: map[string]bool{
-			"category":  true,
-			"filter":    true,
-			"facet":     true,
-			"group":     true,
-			"type":      true,
-			"brand":     true,
-			"price":     true,
-			"color":     true,
-			"size":      true,
+			"filter": true,
+			"facet":  true,
+			"group":  true,
 		},
 		autocompleteMaxLen: 3,
 	}
@@ -55,26 +47,25 @@ func (ic *IntentClassifier) Classify(parsed *models.ParsedQuery) models.Intent {
 		return models.IntentAutocomplete
 	}
 
-	// Check for analytics intent
-	lower := strings.ToLower(parsed.Normalized)
-	for kw := range ic.analyticsKeywords {
-		if strings.Contains(lower, kw) {
+	// Match intent only when a keyword is the leading token, not a substring.
+	// This prevents "popular laptops" from routing to analytics just because
+	// "popular" is an analytics keyword — it's being used as an adjective.
+	if len(parsed.Tokens) > 0 {
+		lead := parsed.Tokens[0]
+		if ic.analyticsKeywords[lead] {
 			return models.IntentAnalytics
+		}
+		if ic.facetedKeywords[lead] {
+			return models.IntentFaceted
 		}
 	}
 
-	// Check for faceted intent via field queries or faceted keywords
+	// Check for faceted intent via explicit field:value syntax
 	if len(parsed.Fields) > 0 {
 		for field := range parsed.Fields {
 			if ic.facetedKeywords[strings.ToLower(field)] {
 				return models.IntentFaceted
 			}
-		}
-	}
-
-	for kw := range ic.facetedKeywords {
-		if strings.Contains(lower, kw) {
-			return models.IntentFaceted
 		}
 	}
 

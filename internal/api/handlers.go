@@ -38,6 +38,10 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if req.Query == "" {
+		h.writeError(w, http.StatusBadRequest, "missing_query", "Query parameter 'q' is required")
+		return
+	}
 	req.RequestID = requestID
 
 	resp, err := h.orchestrator.Search(ctx, req)
@@ -54,12 +58,17 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
+const maxAutocompletePrefixLen = 100
+
 func (h *Handler) Autocomplete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	prefix := r.URL.Query().Get("q")
 	if prefix == "" {
 		h.writeError(w, http.StatusBadRequest, "missing_query", "Query parameter 'q' is required")
 		return
+	}
+	if len(prefix) > maxAutocompletePrefixLen {
+		prefix = prefix[:maxAutocompletePrefixLen]
 	}
 
 	// Check cache first

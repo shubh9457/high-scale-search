@@ -31,44 +31,51 @@ func NewSlowQueryDetector(warningMs, criticalMs time.Duration, logger *zap.Logge
 }
 
 func (sqd *SlowQueryDetector) Intercept(ctx context.Context, query string, queryType string, duration time.Duration, totalHits int64, shardsHit int, timedOut bool) {
-	traceID := TraceIDFromContext(ctx)
-
-	event := &models.AnalyticsEvent{
-		EventType:  "query_performance",
-		QueryHash:  hashQueryForLog(query),
-		QueryType:  queryType,
-		DurationMs: float64(duration.Milliseconds()),
-		TotalHits:  totalHits,
-		ShardsHit:  shardsHit,
-		TimedOut:   timedOut,
-		Timestamp:  time.Now().UTC(),
-		TraceID:    traceID,
+	// Only log and write analytics for queries that exceed the warning threshold.
+	// Fast queries (~99% of traffic) return immediately with zero overhead.
+	if duration <= sqd.warningThreshold {
+		return
 	}
 
+	traceID := TraceIDFromContext(ctx)
 	severity := sqd.classifySeverity(duration)
 
-	if duration > sqd.warningThreshold {
-		SlowQueryCounter.WithLabelValues(severity, queryType).Inc()
+	SlowQueryCounter.WithLabelValues(severity, queryType).Inc()
 
-		sqd.logger.Warn("slow query detected",
-			zap.String("trace_id", traceID),
-			zap.String("query_hash", event.QueryHash),
-			zap.String("query_type", queryType),
-			zap.Float64("duration_ms", event.DurationMs),
-			zap.Int64("total_hits", totalHits),
-			zap.Int("shards_hit", shardsHit),
-			zap.Bool("timed_out", timedOut),
-			zap.String("severity", severity),
-		)
-	}
+	sqd.logger.Warn("slow query detected",
+		zap.String("trace_id", traceID),
+		zap.String("query_hash", hashQueryForLog(query)),
+		zap.String("query_type", queryType),
+		zap.Float64("duration_ms", float64(duration.Milliseconds())),
+		zap.Int64("total_hits", totalHits),
+		zap.Int("shards_hit", shardsHit),
+		zap.Bool("timed_out", timedOut),
+		zap.String("severity", severity),
+	)
 
+	// Write to ClickHouse asynchronously so it doesn't block the response.
 	if sqd.analyticsWriter != nil {
-		if err := sqd.analyticsWriter.WriteQueryPerformance(ctx, event); err != nil {
-			sqd.logger.Error("failed to write query analytics",
-				zap.String("trace_id", traceID),
-				zap.Error(err),
-			)
+		event := &models.AnalyticsEvent{
+			EventType:  "query_performance",
+			QueryHash:  hashQueryForLog(query),
+			QueryType:  queryType,
+			DurationMs: float64(duration.Milliseconds()),
+			TotalHits:  totalHits,
+			ShardsHit:  shardsHit,
+			TimedOut:   timedOut,
+			Timestamp:  time.Now().UTC(),
+			TraceID:    traceID,
 		}
+		go func() {
+			writeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := sqd.analyticsWriter.WriteQueryPerformance(writeCtx, event); err != nil {
+				sqd.logger.Error("failed to write query analytics",
+					zap.String("trace_id", traceID),
+					zap.Error(err),
+				)
+			}
+		}()
 	}
 }
 

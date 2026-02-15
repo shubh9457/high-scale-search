@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -205,12 +206,25 @@ func (o *Orchestrator) primarySearch(ctx context.Context, req *models.SearchRequ
 	}
 }
 
+// validIndexComponent only allows lowercase alphanumeric and hyphens in index names.
+var validIndexComponent = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+func sanitizeIndexComponent(s string) string {
+	if validIndexComponent.MatchString(s) {
+		return s
+	}
+	return ""
+}
+
 func (o *Orchestrator) fullTextSearch(ctx context.Context, req *models.SearchRequest, parsed *models.ParsedQuery) (*models.SearchResponse, error) {
 	esQuery := o.builder.BuildESQuery(parsed, req)
 
 	index := fmt.Sprintf("%s-*", o.esCfg.IndexPrefix)
 	if req.Region != "" {
-		index = fmt.Sprintf("%s-*-%s-*", o.esCfg.IndexPrefix, req.Region)
+		region := sanitizeIndexComponent(req.Region)
+		if region != "" {
+			index = fmt.Sprintf("%s-*-%s-*", o.esCfg.IndexPrefix, region)
+		}
 	}
 
 	result, err := o.esClient.Search(ctx, index, esQuery)
