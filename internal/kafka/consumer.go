@@ -126,7 +126,11 @@ func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) {
 				zap.String("doc_id", event.DocumentID),
 			)
 			backoff := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond
-			time.Sleep(backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
 			continue
 		}
 		lastErr = nil
@@ -154,15 +158,19 @@ func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) {
 }
 
 func (c *Consumer) sendToDLQ(ctx context.Context, msg kafka.Message, reason string) {
+	// Copy headers to avoid mutating the original message's backing array.
+	headers := make([]kafka.Header, len(msg.Headers), len(msg.Headers)+4)
+	copy(headers, msg.Headers)
+	headers = append(headers,
+		kafka.Header{Key: "dlq_reason", Value: []byte(reason)},
+		kafka.Header{Key: "original_topic", Value: []byte(c.cfg.TopicChanges)},
+		kafka.Header{Key: "original_partition", Value: []byte(fmt.Sprintf("%d", msg.Partition))},
+		kafka.Header{Key: "original_offset", Value: []byte(fmt.Sprintf("%d", msg.Offset))},
+	)
 	dlqMsg := kafka.Message{
-		Key:   msg.Key,
-		Value: msg.Value,
-		Headers: append(msg.Headers,
-			kafka.Header{Key: "dlq_reason", Value: []byte(reason)},
-			kafka.Header{Key: "original_topic", Value: []byte(c.cfg.TopicChanges)},
-			kafka.Header{Key: "original_partition", Value: []byte(fmt.Sprintf("%d", msg.Partition))},
-			kafka.Header{Key: "original_offset", Value: []byte(fmt.Sprintf("%d", msg.Offset))},
-		),
+		Key:     msg.Key,
+		Value:   msg.Value,
+		Headers: headers,
 	}
 
 	if err := c.dlqWriter.WriteMessages(ctx, dlqMsg); err != nil {

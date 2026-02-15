@@ -66,12 +66,8 @@ func (c *Client) GetMulti(ctx context.Context, collection string, docIDs []strin
 	)
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.RequestTimeout)
-	defer cancel()
-
 	result := make(map[string]map[string]any, len(docIDs))
 
-	// Process in batches to avoid exceeding Firestore limits
 	batchSize := c.cfg.MaxBatchSize
 	if batchSize <= 0 {
 		batchSize = 100
@@ -84,14 +80,18 @@ func (c *Client) GetMulti(ctx context.Context, collection string, docIDs []strin
 		}
 		batch := docIDs[i:end]
 
+		// Each batch gets its own timeout so sequential batches don't starve.
+		batchCtx, batchCancel := context.WithTimeout(ctx, c.cfg.RequestTimeout)
+
 		refs := make([]*firestore.DocumentRef, len(batch))
 		for j, id := range batch {
 			refs[j] = c.client.Collection(collection).Doc(id)
 		}
 
-		docs, err := c.client.GetAll(ctx, refs)
+		docs, err := c.client.GetAll(batchCtx, refs)
+		batchCancel()
 		if err != nil {
-			return nil, fmt.Errorf("firestore get_all batch: %w", err)
+			return nil, fmt.Errorf("firestore get_all batch %d: %w", i/batchSize, err)
 		}
 
 		for _, doc := range docs {
