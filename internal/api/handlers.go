@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/shubhsaxena/high-scale-search/internal/models"
 	"github.com/shubhsaxena/high-scale-search/internal/orchestrator"
 )
+
+const maxRequestBodySize = 1 << 20 // 1 MB
 
 type Handler struct {
 	orchestrator *orchestrator.Orchestrator
@@ -135,7 +138,8 @@ func (h *Handler) Trending(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) parseSearchRequest(r *http.Request) (*models.SearchRequest, error) {
 	if r.Method == http.MethodPost {
 		var req models.SearchRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		limited := io.LimitReader(r.Body, maxRequestBodySize)
+		if err := json.NewDecoder(limited).Decode(&req); err != nil {
 			return nil, err
 		}
 		return &req, nil

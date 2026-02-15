@@ -88,7 +88,7 @@ func (c *Client) Search(ctx context.Context, index string, query map[string]any)
 
 	cbResult, err := c.cb.Execute(func() (any, error) {
 		var retryResult *SearchResult
-		retryErr := resilience.Retry(c.retryCfg, func() error {
+		retryErr := resilience.Retry(ctx, c.retryCfg, func() error {
 			var execErr error
 			retryResult, execErr = c.executeSearch(ctx, index, query)
 			return execErr

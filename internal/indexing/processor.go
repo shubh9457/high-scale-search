@@ -16,18 +16,28 @@ import (
 	"github.com/shubhsaxena/high-scale-search/internal/observability"
 )
 
+const (
+	// maxBufferSize prevents unbounded buffer growth on repeated flush failures.
+	maxBufferSize = 50000
+	// maxAsyncWorkers bounds concurrent background goroutines for CH writes and cache invalidation.
+	maxAsyncWorkers = 128
+)
+
 type StreamProcessor struct {
 	esClient *elasticsearch.Client
 	chClient *clickhouse.Client
 	cache    *cache.RedisCache
-	esCfg   config.ElasticsearchConfig
+	esCfg    config.ElasticsearchConfig
 	logger   *zap.Logger
 
 	// Bulk buffer
-	mu      sync.Mutex
-	buffer  []models.IndexAction
-	ticker  *time.Ticker
-	done    chan struct{}
+	mu     sync.Mutex
+	buffer []models.IndexAction
+	ticker *time.Ticker
+	done   chan struct{}
+
+	// Semaphore to bound background goroutines
+	asyncSem chan struct{}
 }
 
 func NewStreamProcessor(
@@ -41,11 +51,12 @@ func NewStreamProcessor(
 		esClient: esClient,
 		chClient: chClient,
 		cache:    cache,
-		esCfg:   esCfg,
+		esCfg:    esCfg,
 		logger:   logger,
 		buffer:   make([]models.IndexAction, 0, esCfg.BulkSize),
 		ticker:   time.NewTicker(esCfg.BulkFlushInterval),
 		done:     make(chan struct{}),
+		asyncSem: make(chan struct{}, maxAsyncWorkers),
 	}
 
 	go sp.flushLoop()
@@ -72,9 +83,9 @@ func (sp *StreamProcessor) HandleEvent(ctx context.Context, event *models.Change
 		}
 	}
 
-	// Write to ClickHouse for analytics (async, best-effort)
+	// Write to ClickHouse for analytics (async, best-effort, bounded)
 	if sp.chClient != nil {
-		go func() {
+		sp.asyncDo(func() {
 			chCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := sp.chClient.InsertDocumentEvent(chCtx, event); err != nil {
@@ -83,23 +94,37 @@ func (sp *StreamProcessor) HandleEvent(ctx context.Context, event *models.Change
 					zap.Error(err),
 				)
 			}
-		}()
+		})
 	}
 
-	// Invalidate relevant caches
-	go func() {
+	// Invalidate relevant caches (async, bounded, targeted keys)
+	sp.asyncDo(func() {
 		cacheCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		patterns := buildInvalidationKeys(event)
-		if err := sp.cache.InvalidatePattern(cacheCtx, patterns); err != nil {
+		keys := buildInvalidationKeys(event)
+		if err := sp.cache.InvalidateKeys(cacheCtx, keys); err != nil {
 			sp.logger.Warn("cache invalidation failed",
 				zap.String("doc_id", event.DocumentID),
 				zap.Error(err),
 			)
 		}
-	}()
+	})
 
 	return nil
+}
+
+// asyncDo runs fn in a background goroutine bounded by the semaphore.
+// If all workers are busy, the call is dropped to apply backpressure.
+func (sp *StreamProcessor) asyncDo(fn func()) {
+	select {
+	case sp.asyncSem <- struct{}{}:
+		go func() {
+			defer func() { <-sp.asyncSem }()
+			fn()
+		}()
+	default:
+		sp.logger.Warn("async worker pool full, dropping background task")
+	}
 }
 
 func (sp *StreamProcessor) transformEvent(event *models.ChangeEvent) (*models.IndexAction, error) {
@@ -182,9 +207,18 @@ func (sp *StreamProcessor) flush(ctx context.Context) error {
 
 	start := time.Now()
 	if err := sp.esClient.BulkIndex(ctx, batch); err != nil {
-		// Put failed items back into buffer for retry
+		// Put failed items back into buffer, but cap to prevent unbounded growth
 		sp.mu.Lock()
-		sp.buffer = append(batch, sp.buffer...)
+		combined := append(batch, sp.buffer...)
+		if len(combined) > maxBufferSize {
+			dropped := len(combined) - maxBufferSize
+			combined = combined[dropped:]
+			sp.logger.Error("buffer overflow, dropping oldest events",
+				zap.Int("dropped", dropped),
+				zap.Int("buffer_size", maxBufferSize),
+			)
+		}
+		sp.buffer = combined
 		sp.mu.Unlock()
 
 		observability.IndexingEventsTotal.WithLabelValues("bulk", "error").Inc()
@@ -211,22 +245,20 @@ func (sp *StreamProcessor) Stop() error {
 	return sp.flush(ctx)
 }
 
+// buildInvalidationKeys returns specific cache keys to delete rather than
+// wildcard patterns, avoiding O(N) SCAN operations on large keyspaces.
 func buildInvalidationKeys(event *models.ChangeEvent) []string {
-	var patterns []string
-
-	// Invalidate search results containing this document
-	patterns = append(patterns, "sr:*")
-
-	// Invalidate facets for the document's category
-	if category, ok := event.Document["category"].(string); ok {
-		patterns = append(patterns, fmt.Sprintf("fc:%s:*", category))
-	}
+	var keys []string
 
 	// Invalidate trending and popular for the region
 	if event.Region != "" {
-		patterns = append(patterns, fmt.Sprintf("trend:%s", event.Region))
-		patterns = append(patterns, fmt.Sprintf("pop:%s:*", event.Region))
+		keys = append(keys, fmt.Sprintf("trend:%s", event.Region))
 	}
 
-	return patterns
+	// Invalidate facets for the document's category
+	if category, ok := event.Document["category"].(string); ok {
+		keys = append(keys, fmt.Sprintf("fc:%s", category))
+	}
+
+	return keys
 }

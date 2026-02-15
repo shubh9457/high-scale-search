@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -83,22 +85,15 @@ func (rc *RedisCache) GetStaleResults(ctx context.Context, req *models.SearchReq
 	return rc.getResponse(ctx, key)
 }
 
-func (rc *RedisCache) InvalidatePattern(ctx context.Context, patterns []string) error {
-	for _, pattern := range patterns {
-		iter := rc.client.Scan(ctx, 0, pattern, 100).Iterator()
-		var keys []string
-		for iter.Next(ctx) {
-			keys = append(keys, iter.Val())
-		}
-		if err := iter.Err(); err != nil {
-			rc.logger.Warn("cache scan error", zap.String("pattern", pattern), zap.Error(err))
-			continue
-		}
-		if len(keys) > 0 {
-			if err := rc.client.Del(ctx, keys...).Err(); err != nil {
-				rc.logger.Warn("cache delete error", zap.Strings("keys", keys), zap.Error(err))
-			}
-		}
+// InvalidateKeys deletes specific cache keys. Prefer this over pattern-based
+// invalidation to avoid O(N) SCAN operations on large keyspaces.
+func (rc *RedisCache) InvalidateKeys(ctx context.Context, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := rc.client.Del(ctx, keys...).Err(); err != nil {
+		rc.logger.Warn("cache delete error", zap.Int("key_count", len(keys)), zap.Error(err))
+		return err
 	}
 	return nil
 }
@@ -189,14 +184,37 @@ func (rc *RedisCache) setResponse(ctx context.Context, key string, resp *models.
 	return rc.client.Set(ctx, key, data, ttl).Err()
 }
 
+// buildSearchKey produces a deterministic cache key by sorting filter keys
+// before hashing, ensuring identical filter sets always produce the same key.
 func (rc *RedisCache) buildSearchKey(req *models.SearchRequest) string {
-	raw := fmt.Sprintf("%s:%v:%d:%d", req.Query, req.Filters, req.Page, req.PageSize)
+	raw := fmt.Sprintf("%s:%s:%d:%d", req.Query, canonicalFilters(req.Filters), req.Page, req.PageSize)
 	return fmt.Sprintf("sr:%s", hashString(raw))
 }
 
 func (rc *RedisCache) buildStaleKey(req *models.SearchRequest) string {
-	raw := fmt.Sprintf("%s:%v:%d:%d", req.Query, req.Filters, req.Page, req.PageSize)
+	raw := fmt.Sprintf("%s:%s:%d:%d", req.Query, canonicalFilters(req.Filters), req.Page, req.PageSize)
 	return fmt.Sprintf("sr:stale:%s", hashString(raw))
+}
+
+// canonicalFilters produces a deterministic string from a filter map by sorting keys.
+func canonicalFilters(filters map[string]any) string {
+	if len(filters) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(filters))
+	for k := range filters {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var sb strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		fmt.Fprintf(&sb, "%s=%v", k, filters[k])
+	}
+	return sb.String()
 }
 
 func (rc *RedisCache) ttlForIntent(intent string) time.Duration {
