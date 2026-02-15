@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/firestore v1.15.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.23.0
 	github.com/elastic/go-elasticsearch/v8 v8.13.1
-	github.com/go-chi/chi/v5 v5.0.12
+	github.com/go-chi/chi/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.19.0
 	github.com/redis/go-redis/v9 v9.5.1
