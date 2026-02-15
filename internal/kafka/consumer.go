@@ -182,6 +182,20 @@ func (c *Consumer) commitMessage(ctx context.Context, msg kafka.Message) {
 	}
 }
 
+func (c *Consumer) HealthCheck(ctx context.Context) error {
+	conn, err := kafka.DialContext(ctx, "tcp", c.cfg.Brokers[0])
+	if err != nil {
+		return fmt.Errorf("kafka health check dial: %w", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Brokers()
+	if err != nil {
+		return fmt.Errorf("kafka health check brokers: %w", err)
+	}
+	return nil
+}
+
 func (c *Consumer) Stop() error {
 	if c.cancelFunc != nil {
 		c.cancelFunc()

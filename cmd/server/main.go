@@ -140,6 +140,7 @@ func run(configPath string) error {
 	if chClient != nil {
 		healthHandler.Register("clickhouse", chClient)
 	}
+	healthHandler.Register("kafka", consumer)
 
 	router := api.NewRouter(handler, healthHandler, logger)
 

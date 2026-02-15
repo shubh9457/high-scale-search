@@ -4,6 +4,8 @@ import (
 	"github.com/shubhsaxena/high-scale-search/internal/models"
 )
 
+const maxESFromPlusSize = 10000
+
 type QueryBuilder struct{}
 
 func NewQueryBuilder() *QueryBuilder {
@@ -13,7 +15,7 @@ func NewQueryBuilder() *QueryBuilder {
 func (qb *QueryBuilder) BuildESQuery(parsed *models.ParsedQuery, req *models.SearchRequest) map[string]any {
 	query := make(map[string]any)
 
-	// Build the main query
+	// Build the main bool query
 	var boolQuery map[string]any
 
 	if parsed.IsPhrase {
@@ -45,10 +47,10 @@ func (qb *QueryBuilder) BuildESQuery(parsed *models.ParsedQuery, req *models.Sea
 			"must": []map[string]any{
 				{
 					"multi_match": map[string]any{
-						"query":     parsed.Normalized,
-						"type":      "best_fields",
-						"fields":    []string{"title^3", "description^2", "tags"},
-						"fuzziness": "AUTO",
+						"query":       parsed.Normalized,
+						"type":        "best_fields",
+						"fields":      []string{"title^3", "description^2", "tags"},
+						"fuzziness":   "AUTO",
 						"tie_breaker": 0.3,
 					},
 				},
@@ -99,11 +101,7 @@ func (qb *QueryBuilder) BuildESQuery(parsed *models.ParsedQuery, req *models.Sea
 		}
 	}
 
-	query["query"] = map[string]any{
-		"bool": boolQuery,
-	}
-
-	// Script score for popularity boosting
+	// Wrap bool query in script_score for popularity boosting
 	query["query"] = map[string]any{
 		"script_score": map[string]any{
 			"query": map[string]any{
@@ -115,8 +113,14 @@ func (qb *QueryBuilder) BuildESQuery(parsed *models.ParsedQuery, req *models.Sea
 		},
 	}
 
-	// Pagination
+	// Pagination with deep pagination guard
 	from := req.Page * req.PageSize
+	if from+req.PageSize > maxESFromPlusSize {
+		from = maxESFromPlusSize - req.PageSize
+		if from < 0 {
+			from = 0
+		}
+	}
 	query["from"] = from
 	query["size"] = req.PageSize
 
@@ -153,9 +157,9 @@ func (qb *QueryBuilder) BuildESQuery(parsed *models.ParsedQuery, req *models.Sea
 		"text": parsed.Original,
 		"spell_suggest": map[string]any{
 			"phrase": map[string]any{
-				"field":     "title.suggest",
-				"size":      1,
-				"gram_size": 3,
+				"field":      "title.suggest",
+				"size":       1,
+				"gram_size":  3,
 				"confidence": 1.0,
 			},
 		},

@@ -1,6 +1,7 @@
 package resilience
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -47,7 +48,9 @@ type RetryConfig struct {
 	Multiplier  float64
 }
 
-func Retry(cfg RetryConfig, fn func() error) error {
+// Retry executes fn with exponential backoff. It respects context cancellation
+// between attempts, returning immediately if the context is done.
+func Retry(ctx context.Context, cfg RetryConfig, fn func() error) error {
 	var lastErr error
 	wait := cfg.InitialWait
 
@@ -58,7 +61,11 @@ func Retry(cfg RetryConfig, fn func() error) error {
 		}
 
 		if attempt < cfg.MaxAttempts-1 {
-			time.Sleep(wait)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("retry cancelled: %w", ctx.Err())
+			case <-time.After(wait):
+			}
 			wait = time.Duration(float64(wait) * cfg.Multiplier)
 			if wait > cfg.MaxWait {
 				wait = cfg.MaxWait
