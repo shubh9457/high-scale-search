@@ -1,0 +1,92 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 10s
+  shutdown_timeout: 30s
+
+elasticsearch:
+  addresses:
+    - "${ES_ADDRESS:-http://localhost:9200}"
+  username: "${ES_USERNAME:-}"
+  password: "${ES_PASSWORD:-}"
+  max_retries: 3
+  request_timeout: 150ms
+  index_prefix: "search"
+  num_shards: 2
+  num_replicas: 2
+  refresh_interval: "1s"
+  bulk_size: 5000
+  bulk_flush_interval: 5s
+
+redis:
+  addresses:
+    - "${REDIS_ADDRESS:-localhost:6379}"
+  password: "${REDIS_PASSWORD:-}"
+  db: 0
+  pool_size: 100
+  min_idle_conns: 10
+  dial_timeout: 5s
+  read_timeout: 1s
+  write_timeout: 1s
+  ttl:
+    autocomplete: 10m
+    trending: 60s
+    search_results: 2m
+    facet_counts: 5m
+    user_recent: 24h
+    popular_queries: 5m
+    stale_fallback: 1h
+
+clickhouse:
+  addresses:
+    - "${CH_ADDRESS:-localhost:9000}"
+  database: "${CH_DATABASE:-search_analytics}"
+  username: "${CH_USERNAME:-default}"
+  password: "${CH_PASSWORD:-}"
+  dial_timeout: 5s
+  query_timeout: 2s
+  max_open_conns: 10
+  max_idle_conns: 5
+
+firestore:
+  project_id: "${GCP_PROJECT_ID:-}"
+  credentials_file: "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+  request_timeout: 2s
+  max_batch_size: 100
+
+kafka:
+  brokers:
+    - "${KAFKA_BROKER:-localhost:9092}"
+  topic_changes: "docs.changes"
+  topic_dlq: "docs.changes.dlq"
+  consumer_group: "search-indexer"
+  num_partitions: 12
+  replication_factor: 3
+  batch_size: 1000
+  batch_timeout: 1s
+  max_retries: 3
+
+search:
+  default_page_size: 20
+  max_page_size: 100
+  query_timeout: 200ms
+  circuit_breaker:
+    max_requests: 100
+    interval: 30s
+    timeout: 30s
+    failure_threshold: 5
+  retry:
+    max_attempts: 2
+    initial_wait: 50ms
+    max_wait: 500ms
+    multiplier: 2.0
+  slow_query:
+    warning_threshold: 200ms
+    critical_threshold: 500ms
+
+observability:
+  metrics_port: 9090
+  tracing_endpoint: "${OTEL_ENDPOINT:-http://localhost:4318}"
+  log_level: "${LOG_LEVEL:-info}"
+  service_name: "search-orchestrator"
