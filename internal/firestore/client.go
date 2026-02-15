@@ -161,7 +161,11 @@ func (cl *ChangeListener) Listen(ctx context.Context) error {
 				return ctx.Err()
 			}
 			cl.logger.Error("snapshot iterator error", zap.Error(err))
-			time.Sleep(time.Second)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second):
+			}
 			continue
 		}
 
@@ -201,7 +205,12 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 
 	iter := c.client.Collection("_health_check").Limit(1).Documents(ctx)
 	defer iter.Stop()
-	_, _ = iter.Next()
+
+	_, err := iter.Next()
+	// iterator.Done means the collection is empty — Firestore is reachable.
+	if err != nil && err.Error() != "no more items in iterator" {
+		return fmt.Errorf("firestore health check: %w", err)
+	}
 	return nil
 }
 
