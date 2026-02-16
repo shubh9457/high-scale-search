@@ -89,7 +89,11 @@ func (c *Consumer) consumeLoop(ctx context.Context) {
 				return
 			}
 			c.logger.Error("fetching kafka message", zap.Error(err))
-			time.Sleep(time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
 			continue
 		}
 

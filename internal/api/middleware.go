@@ -40,10 +40,15 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
+	if rw.wroteHeader {
+		return
+	}
+	rw.wroteHeader = true
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
 }
@@ -91,7 +96,9 @@ func RecoveryMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 						zap.String("stack", string(debug.Stack())),
 						zap.String("request_id", RequestIDFromContext(r.Context())),
 					)
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(`{"error":"internal server error","code":"PANIC"}`))
 				}
 			}()
 			next.ServeHTTP(w, r)
@@ -120,7 +127,9 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		default:
 			observability.SearchRequestsTotal.WithLabelValues("unknown", "rate_limited").Inc()
-			http.Error(w, `{"error":"rate limit exceeded","code":"RATE_LIMITED"}`, http.StatusTooManyRequests)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":"rate limit exceeded","code":"RATE_LIMITED"}`))
 		}
 	})
 }

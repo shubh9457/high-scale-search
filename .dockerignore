@@ -1,0 +1,41 @@
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+LICENSE
+project_structure.md
+
+# Docker
+docker-compose.yaml
+docker-compose.override.yaml
+Dockerfile
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# Test artifacts
+*_test.go
+coverage.html
+*.out
+
+# CI/CD
+.github/
+.claude/
+
+# Binaries
+bin/

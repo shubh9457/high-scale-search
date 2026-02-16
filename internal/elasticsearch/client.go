@@ -206,7 +206,9 @@ func (c *Client) BulkIndex(ctx context.Context, actions []models.IndexAction) er
 			},
 		}
 		if action.Routing != "" {
-			meta[action.Action].(map[string]any)["routing"] = action.Routing
+			if inner, ok := meta[action.Action].(map[string]any); ok {
+				inner["routing"] = action.Routing
+			}
 		}
 
 		metaLine, err := json.Marshal(meta)
