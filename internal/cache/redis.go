@@ -53,6 +53,7 @@ func NewRedisCache(cfg config.RedisConfig, logger *zap.Logger) (*RedisCache, err
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
+		client.Close()
 		return nil, fmt.Errorf("redis ping failed: %w", err)
 	}
 
@@ -187,12 +188,12 @@ func (rc *RedisCache) setResponse(ctx context.Context, key string, resp *models.
 // buildSearchKey produces a deterministic cache key by sorting filter keys
 // before hashing, ensuring identical filter sets always produce the same key.
 func (rc *RedisCache) buildSearchKey(req *models.SearchRequest) string {
-	raw := fmt.Sprintf("%s:%s:%d:%d", req.Query, canonicalFilters(req.Filters), req.Page, req.PageSize)
+	raw := fmt.Sprintf("%s:%s:%d:%d:%s:%s", req.Query, canonicalFilters(req.Filters), req.Page, req.PageSize, req.Sort, req.Region)
 	return fmt.Sprintf("sr:%s", hashString(raw))
 }
 
 func (rc *RedisCache) buildStaleKey(req *models.SearchRequest) string {
-	raw := fmt.Sprintf("%s:%s:%d:%d", req.Query, canonicalFilters(req.Filters), req.Page, req.PageSize)
+	raw := fmt.Sprintf("%s:%s:%d:%d:%s:%s", req.Query, canonicalFilters(req.Filters), req.Page, req.PageSize, req.Sort, req.Region)
 	return fmt.Sprintf("sr:stale:%s", hashString(raw))
 }
 
