@@ -95,6 +95,7 @@ func (h *Handler) Autocomplete(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("autocomplete search failed", zap.Error(err))
 		h.writeJSON(w, http.StatusOK, map[string]any{
 			"suggestions": []string{},
+			"source":      "none",
 		})
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
 	"github.com/shubhsaxena/high-scale-search/internal/config"
@@ -208,7 +209,7 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 
 	_, err := iter.Next()
 	// iterator.Done means the collection is empty — Firestore is reachable.
-	if err != nil && err.Error() != "no more items in iterator" {
+	if err != nil && err != iterator.Done {
 		return fmt.Errorf("firestore health check: %w", err)
 	}
 	return nil

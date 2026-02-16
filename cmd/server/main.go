@@ -176,16 +176,17 @@ func run(configPath string) error {
 	// Graceful shutdown
 	logger.Info("starting graceful shutdown", zap.Duration("timeout", cfg.Server.ShutdownTimeout))
 
+	// Cancel background operations first so in-flight requests unblock
+	// (e.g., requests waiting on ES/Redis that depend on this context).
+	cancel()
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer shutdownCancel()
 
-	// Stop accepting new requests
+	// Drain in-flight HTTP requests
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("http server shutdown error", zap.Error(err))
 	}
-
-	// Cancel background operations
-	cancel()
 
 	// Shutdown tracing
 	if tracerShutdown != nil {
