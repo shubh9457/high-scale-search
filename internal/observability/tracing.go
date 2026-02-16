@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -13,7 +14,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var tracer trace.Tracer
+var (
+	tracerOnce sync.Once
+	tracer     trace.Tracer
+)
 
 func InitTracer(serviceName string) (func(context.Context) error, error) {
 	res, err := resource.Merge(
@@ -38,15 +42,17 @@ func InitTracer(serviceName string) (func(context.Context) error, error) {
 		propagation.Baggage{},
 	))
 
-	tracer = tp.Tracer(serviceName)
+	tracerOnce.Do(func() {
+		tracer = tp.Tracer(serviceName)
+	})
 
 	return tp.Shutdown, nil
 }
 
 func Tracer() trace.Tracer {
-	if tracer == nil {
+	tracerOnce.Do(func() {
 		tracer = otel.Tracer("search-orchestrator")
-	}
+	})
 	return tracer
 }
 

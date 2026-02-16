@@ -19,7 +19,7 @@ type ESHealthChecker interface {
 }
 
 type HealthHandler struct {
-	checks map[string]HealthChecker
+	checks  map[string]HealthChecker
 	esCheck ESHealthChecker
 	logger  *zap.Logger
 }
@@ -48,7 +48,9 @@ type componentHealth struct {
 func (h *HealthHandler) Liveness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "alive"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "alive"}); err != nil {
+		h.logger.Error("encoding liveness response", zap.Error(err))
+	}
 }
 
 func (h *HealthHandler) Readiness(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +116,11 @@ func (h *HealthHandler) Readiness(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(overallStatus)
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"status":     overall,
 		"components": results,
 		"timestamp":  time.Now().UTC().Format(time.RFC3339),
-	})
+	}); err != nil {
+		h.logger.Error("encoding readiness response", zap.Error(err))
+	}
 }

@@ -1,0 +1,39 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# Docker
+docker-compose.override.yaml
+
+# Build
+tmp/

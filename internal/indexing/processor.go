@@ -35,6 +35,7 @@ type StreamProcessor struct {
 	buffer []models.IndexAction
 	ticker *time.Ticker
 	done   chan struct{}
+	loopWg sync.WaitGroup // tracks flushLoop goroutine lifetime
 
 	// Semaphore to bound background goroutines
 	asyncSem chan struct{}
@@ -59,7 +60,11 @@ func NewStreamProcessor(
 		asyncSem: make(chan struct{}, maxAsyncWorkers),
 	}
 
-	go sp.flushLoop()
+	sp.loopWg.Add(1)
+	go func() {
+		defer sp.loopWg.Done()
+		sp.flushLoop()
+	}()
 
 	return sp
 }
@@ -238,7 +243,10 @@ func (sp *StreamProcessor) Stop() error {
 	sp.ticker.Stop()
 	close(sp.done)
 
-	// Final flush
+	// Wait for flushLoop to fully exit so we don't race with a concurrent flush.
+	sp.loopWg.Wait()
+
+	// Final flush of any remaining buffered events
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

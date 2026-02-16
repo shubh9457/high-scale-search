@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -205,12 +206,25 @@ func (o *Orchestrator) primarySearch(ctx context.Context, req *models.SearchRequ
 	}
 }
 
+// validIndexComponent only allows lowercase alphanumeric and hyphens in index names.
+var validIndexComponent = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+func sanitizeIndexComponent(s string) string {
+	if validIndexComponent.MatchString(s) {
+		return s
+	}
+	return ""
+}
+
 func (o *Orchestrator) fullTextSearch(ctx context.Context, req *models.SearchRequest, parsed *models.ParsedQuery) (*models.SearchResponse, error) {
 	esQuery := o.builder.BuildESQuery(parsed, req)
 
 	index := fmt.Sprintf("%s-*", o.esCfg.IndexPrefix)
 	if req.Region != "" {
-		index = fmt.Sprintf("%s-*-%s-*", o.esCfg.IndexPrefix, req.Region)
+		region := sanitizeIndexComponent(req.Region)
+		if region != "" {
+			index = fmt.Sprintf("%s-*-%s-*", o.esCfg.IndexPrefix, region)
+		}
 	}
 
 	result, err := o.esClient.Search(ctx, index, esQuery)
@@ -274,13 +288,24 @@ func (o *Orchestrator) facetedSearch(ctx context.Context, req *models.SearchRequ
 	esCh := make(chan esResult, 1)
 	chCh := make(chan chResult, 1)
 
-	// Fan-out: ES for results + ClickHouse for facet counts
+	// Fan-out: ES for results + ClickHouse for facet counts.
+	// Each goroutine has panic recovery to prevent a deadlock on the channel receive.
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				esCh <- esResult{err: fmt.Errorf("panic in ES search: %v", r)}
+			}
+		}()
 		resp, err := o.fullTextSearch(ctx, req, parsed)
 		esCh <- esResult{resp: resp, err: err}
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				chCh <- chResult{err: fmt.Errorf("panic in CH facets: %v", r)}
+			}
+		}()
 		if o.chClient == nil {
 			chCh <- chResult{err: fmt.Errorf("clickhouse not available")}
 			return
@@ -325,11 +350,20 @@ func (o *Orchestrator) SetStaticFallback(region string, results []models.SearchR
 func (o *Orchestrator) getStaticFallback(region string) []models.SearchResult {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
+
+	var src []models.SearchResult
 	if results, ok := o.staticFallback[region]; ok {
-		return results
+		src = results
+	} else if results, ok := o.staticFallback["default"]; ok {
+		src = results
 	}
-	if results, ok := o.staticFallback["default"]; ok {
-		return results
+
+	if len(src) == 0 {
+		return nil
 	}
-	return nil
+
+	// Return a copy so callers can't mutate the internal fallback data.
+	cp := make([]models.SearchResult, len(src))
+	copy(cp, src)
+	return cp
 }

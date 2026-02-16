@@ -104,7 +104,11 @@ func (c *Client) Search(ctx context.Context, index string, query map[string]any)
 		return nil, fmt.Errorf("es search (index=%s): %w", index, err)
 	}
 
-	result = cbResult.(*SearchResult)
+	result, ok := cbResult.(*SearchResult)
+	if !ok || result == nil {
+		observability.ESQueryDuration.WithLabelValues(index, "error").Observe(duration.Seconds())
+		return nil, fmt.Errorf("es search (index=%s): unexpected nil result from circuit breaker", index)
+	}
 	observability.ESQueryDuration.WithLabelValues(index, status).Observe(duration.Seconds())
 
 	return result, nil
@@ -202,7 +206,9 @@ func (c *Client) BulkIndex(ctx context.Context, actions []models.IndexAction) er
 			},
 		}
 		if action.Routing != "" {
-			meta[action.Action].(map[string]any)["routing"] = action.Routing
+			if inner, ok := meta[action.Action].(map[string]any); ok {
+				inner["routing"] = action.Routing
+			}
 		}
 
 		metaLine, err := json.Marshal(meta)
