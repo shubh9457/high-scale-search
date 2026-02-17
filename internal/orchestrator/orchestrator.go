@@ -217,6 +217,10 @@ func sanitizeIndexComponent(s string) string {
 }
 
 func (o *Orchestrator) fullTextSearch(ctx context.Context, req *models.SearchRequest, parsed *models.ParsedQuery) (*models.SearchResponse, error) {
+	if o.esClient == nil {
+		return nil, fmt.Errorf("elasticsearch client unavailable")
+	}
+
 	esQuery := o.builder.BuildESQuery(parsed, req)
 
 	index := fmt.Sprintf("%s-*", o.esCfg.IndexPrefix)

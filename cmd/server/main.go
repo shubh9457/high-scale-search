@@ -69,12 +69,14 @@ func run(configPath string) error {
 	defer redisCache.Close()
 	logger.Info("redis cache initialized")
 
-	esClient, err := elasticsearch.NewClient(cfg.Elasticsearch, cfg.Search, logger)
+	var esClient *elasticsearch.Client
+	esClient, err = elasticsearch.NewClient(cfg.Elasticsearch, cfg.Search, logger)
 	if err != nil {
-		return fmt.Errorf("initializing elasticsearch: %w", err)
+		logger.Warn("elasticsearch initialization failed, search will use fallback paths", zap.Error(err))
+	} else {
+		defer esClient.Close()
+		logger.Info("elasticsearch client initialized")
 	}
-	defer esClient.Close()
-	logger.Info("elasticsearch client initialized")
 
 	var chClient *clickhouse.Client
 	chClient, err = clickhouse.NewClient(cfg.ClickHouse, logger)
@@ -136,7 +138,9 @@ func run(configPath string) error {
 
 	healthHandler := api.NewHealthHandler(logger)
 	healthHandler.Register("redis", redisCache)
-	healthHandler.RegisterES(esClient)
+	if esClient != nil {
+		healthHandler.RegisterES(esClient)
+	}
 	if chClient != nil {
 		healthHandler.Register("clickhouse", chClient)
 	}
