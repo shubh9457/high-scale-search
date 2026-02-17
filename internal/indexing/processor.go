@@ -70,6 +70,10 @@ func NewStreamProcessor(
 }
 
 func (sp *StreamProcessor) HandleEvent(ctx context.Context, event *models.ChangeEvent) error {
+	if sp.esClient == nil {
+		return fmt.Errorf("elasticsearch client unavailable, cannot index")
+	}
+
 	// Transform to index action
 	action, err := sp.transformEvent(event)
 	if err != nil {
