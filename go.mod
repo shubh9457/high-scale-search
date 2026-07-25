@@ -1,6 +1,6 @@
 module github.com/shubhsaxena/high-scale-search
 
-go 1.24.1
+go 1.26
 
 require (
 	cloud.google.com/go/firestore v1.15.0
@@ -48,6 +48,7 @@ require (
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/shubhsaxena/chorus v0.0.0
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
@@ -68,3 +69,5 @@ require (
 	google.golang.org/grpc v1.62.1 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 )
+
+replace github.com/shubhsaxena/chorus => "/Users/shubhsaxena/Desktop/Work/GoHighLevel/Cowork Space/chorus"
