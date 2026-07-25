@@ -2,9 +2,11 @@ package kafka
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/shubhsaxena/chorus/core/invariant"
+	"github.com/shubhsaxena/chorus/core/trace"
 	"github.com/shubhsaxena/chorus/spec"
 	"github.com/shubhsaxena/chorus/spec/explore"
 )
@@ -40,6 +42,26 @@ func (s msgState) Observe() invariant.State {
 		"dlq_written":   s.DLQWritten,
 		"committed":     s.Committed,
 	}}
+}
+
+// Label implements spec.LabeledState so chorus's report shows a plain
+// narrative of the run -- successful handler delivery, a warning for
+// each retried broker/handler failure, and the hard error for the
+// specific path this model exists to catch -- instead of just a raw
+// field dump per step.
+func (s msgState) Label() (trace.Level, string) {
+	switch {
+	case s.Delivered && s.Committed:
+		return trace.LevelSuccess, "handler processed the message on this attempt; offset committed"
+	case s.Committed && s.DLQWritten:
+		return trace.LevelWarning, "handler failed on every attempt, but the Kafka broker accepted the DLQ write; offset committed, message recoverable from the DLQ"
+	case s.Committed && !s.DLQWritten:
+		return trace.LevelError, "handler failed on every attempt AND the DLQ write to the Kafka broker failed; offset committed anyway -- message is permanently lost with no record in either the main topic or the DLQ"
+	case s.AttemptsLeft > 0:
+		return trace.LevelWarning, fmt.Sprintf("handler attempt failed; %d attempt(s) remaining, retrying with backoff", s.AttemptsLeft)
+	default:
+		return trace.LevelInfo, "message received from the Kafka broker, awaiting first handler attempt"
+	}
 }
 
 // consumerModel mirrors processMessage for a MaxRetries-attempt budget: each
