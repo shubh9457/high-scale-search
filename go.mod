@@ -40,7 +40,7 @@ require (
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.3 // indirect
-	github.com/klauspost/compress v1.18.3 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.25 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
@@ -70,4 +70,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/shubhsaxena/chorus => "/Users/shubhsaxena/Desktop/Work/GoHighLevel/Cowork Space/chorus"
+replace github.com/shubhsaxena/chorus => /Users/shubhsaxena/Desktop/Work/GoHighLevel/Cowork Space/chorus
